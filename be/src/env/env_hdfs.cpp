@@ -22,7 +22,8 @@ Status HdfsRandomAccessFile::open() {
     if (_fs) {
         _file = hdfsOpenFile(_fs, _filename.c_str(), O_RDONLY, 0, 0, 0);
         if (_file == nullptr) {
-            return Status::InternalError(fmt::format("open file failed, file={}", _filename));
+            return Status::InternalError(
+                    fmt::format("open file failed, file={}, errno={}, errmsg={}", _filename, errno, strerror(errno)));
         }
     }
     _opened = true;
