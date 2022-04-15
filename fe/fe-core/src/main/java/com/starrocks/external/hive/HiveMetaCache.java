@@ -33,7 +33,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class HiveMetaCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaCache.class);
-    private static final long MAX_TABLE_CACHE_SIZE = 1000L;
+    private static final long MAX_TABLE_CACHE_SIZE = 0L;
     private static final long MAX_PARTITION_CACHE_SIZE = MAX_TABLE_CACHE_SIZE * 1000L;
 
     private final HiveMetaClient client;
