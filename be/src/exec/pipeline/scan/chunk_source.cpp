@@ -61,9 +61,9 @@ Status ChunkSource::buffer_next_batch_chunks_blocking(RuntimeState* state, size_
         {
             SCOPED_RAW_TIMER(&time_spent_ns);
 
-            if (_chunk_token == nullptr && (_chunk_token = _chunk_buffer.limiter()->pin(1)) == nullptr) {
-                return _status;
-            }
+//            if (_chunk_token == nullptr && (_chunk_token = _chunk_buffer.limiter()->pin(1)) == nullptr) {
+//                return _status;
+//            }
 
             ChunkPtr chunk;
             _status = _read_chunk(state, &chunk);

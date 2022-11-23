@@ -94,6 +94,9 @@ size_t ScanOperator::_buffer_unplug_threshold() const {
 }
 
 bool ScanOperator::has_output() const {
+    int i = 0;
+FOR:
+    i++;
     if (_is_finished) {
         return false;
     }
@@ -141,7 +144,10 @@ bool ScanOperator::has_output() const {
         }
     }
 
-    return num_buffered_chunks() > 0;
+    if (i >= 1000)
+        return num_buffered_chunks() > 0;
+
+    goto FOR;
 }
 
 bool ScanOperator::pending_finish() const {
@@ -345,7 +351,7 @@ Status ScanOperator::_trigger_next_scan(RuntimeState* state, int chunk_source_in
             int64_t prev_scan_rows = chunk_source->get_scan_rows();
             int64_t prev_scan_bytes = chunk_source->get_scan_bytes();
 
-            auto status = chunk_source->buffer_next_batch_chunks_blocking(state, kIOTaskBatchSize, _workgroup.get());
+            auto status = chunk_source->buffer_next_batch_chunks_blocking(state, 64000, _workgroup.get());
             if (!status.ok() && !status.is_end_of_file()) {
                 _set_scan_status(status);
             }
