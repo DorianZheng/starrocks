@@ -27,13 +27,18 @@ import com.starrocks.connector.hive.HiveMetastore;
 import com.starrocks.connector.hive.IHiveMetastore;
 import com.starrocks.connector.metastore.IMetastore;
 import com.starrocks.sql.analyzer.SemanticException;
+import io.unitycatalog.client.ApiClient;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static com.starrocks.connector.delta.UnityCatalogMetastore.UNITY_CATALOG_HOST;
+import static com.starrocks.connector.delta.UnityCatalogMetastore.UNITY_CATALOG_NAME;
+import static com.starrocks.connector.delta.UnityCatalogMetastore.UNITY_CATALOG_TOKEN;
 import static com.starrocks.connector.hive.HiveConnector.HIVE_METASTORE_TYPE;
 import static com.starrocks.connector.hive.HiveConnector.HIVE_METASTORE_URIS;
 
@@ -72,7 +77,66 @@ public class DeltaLakeInternalMgr {
     }
 
     public IMetastore createDeltaLakeMetastore() {
-        return createHMSBackedDeltaLakeMetastore();
+        if (metastoreType == MetastoreType.UNITY) {
+            return createUnityBackedDeltaLakeMetastore();
+        } else {
+            return createHMSBackedDeltaLakeMetastore();
+        }
+    }
+
+    public IMetastore createUnityBackedDeltaLakeMetastore() {
+        if (!properties.containsKey(UNITY_CATALOG_HOST) || !properties.containsKey(UNITY_CATALOG_TOKEN)) {
+            throw new IllegalArgumentException("Databricks host and token must be set");
+        }
+        if (!properties.containsKey(UNITY_CATALOG_NAME)) {
+            throw new IllegalArgumentException("Databricks catalog name must be set");
+        }
+        String host = properties.get(UNITY_CATALOG_HOST);
+        String token = properties.get(UNITY_CATALOG_TOKEN);
+        String dataBricksCatalogName = properties.get(UNITY_CATALOG_NAME);
+        UnityCatalogMetastore databricksUnityMetastore = new UnityCatalogMetastore(catalogName,
+                dataBricksCatalogName, getApiClient(properties), hdfsEnvironment);
+        UnityBackedDeltaLakeMetastore unityBackedDeltaLakeMetastore =
+                new UnityBackedDeltaLakeMetastore(catalogName, databricksUnityMetastore, hdfsEnvironment.getConfiguration());
+
+        IMetastore deltaLakeMetastore;
+        if (!enableMetastoreCache) {
+            deltaLakeMetastore = unityBackedDeltaLakeMetastore;
+        } else {
+            refreshHiveMetastoreExecutor = Executors.newCachedThreadPool(
+                    new ThreadFactoryBuilder().setNameFormat("deltalake-metastore-refresh-%d").build());
+            Executor executor = new ReentrantExecutor(refreshHiveMetastoreExecutor, hmsConf.getCacheRefreshThreadMaxNum());
+            deltaLakeMetastore = CachingDeltaLakeMetastore.createCatalogLevelInstance(unityBackedDeltaLakeMetastore, executor,
+                    hmsConf.getCacheTtlSec(), hmsConf.getCacheRefreshIntervalSec(), hmsConf.getCacheMaxNum());
+        }
+
+        return deltaLakeMetastore;
+    }
+
+    private static ApiClient getApiClient(Map<String, String> properties)  {
+        // By default, the client will connect to ref server on localhost:8080
+        ApiClient apiClient =  new ApiClient();
+        String server = properties.get(UNITY_CATALOG_HOST);
+        if (server.isEmpty()) {
+            server = "http://localhost:8080";
+        }
+        URI uri = URI.create(server);
+        apiClient.setHost(uri.getHost());
+        if (uri.getPort() == -1 && uri.getScheme().equals("https")) {
+            apiClient.setPort(443);
+        } else if (uri.getPort() == -1 && uri.getScheme().equals("http")) {
+            apiClient.setPort(8080);
+        } else {
+            apiClient.setPort(uri.getPort());
+        }
+        apiClient.setScheme(uri.getScheme());
+        String customAuthToken = properties.get(UNITY_CATALOG_TOKEN);
+        if (!customAuthToken.isEmpty()) {
+            apiClient.setRequestInterceptor(request -> {
+                request.header("Authorization", "Bearer " + customAuthToken);
+            });
+        }
+        return apiClient;
     }
 
     public IMetastore createHMSBackedDeltaLakeMetastore() {
